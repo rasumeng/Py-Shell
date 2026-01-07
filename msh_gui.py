@@ -106,28 +106,57 @@ class ShellGUI(tk.Tk):
         self.title("Python Shell GUI")
         self.geometry("800x500")
 
-        # Output widget
-        self.output = ScrolledText(self, wrap=tk.WORD, bg="black", fg="white", font=("Consolas", 12))
-        self.output.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # Input widget
-        self.input = tk.Entry(self, bg="#1e1e1e", fg="white", font=("Consolas", 12), insertbackground="white")
-        self.input.pack(fill=tk.X, padx=5, pady=5)
-        self.input.bind("<Return>", self.execute_command)
-        self.input.focus_set()
+        # Terminal widget (editable text area)
+        self.terminal = ScrolledText(self, wrap=tk.WORD, bg="black", fg="white", 
+                                      font=("Consolas", 12), insertbackground="white")
+        self.terminal.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.terminal.bind("<Return>", self.execute_command)
+        self.terminal.bind("<KeyPress>", self.on_key_press)
+        self.terminal.bind("<Up>", self.navigate_history_up)
+        self.terminal.bind("<Down>", self.navigate_history_down)
+        self.terminal.focus_set()
 
         # History navigation
         self.history_index = None
-        self.bind("<Up>", self.navigate_history_up)
-        self.bind("<Down>", self.navigate_history_down)
+        
+        # Track where the prompt starts (to prevent editing previous output)
+        self.prompt_position = "1.0"
 
         # Display initial prompt
-        self.output.insert(tk.END, self.get_prompt())
+        self.show_prompt()
+
+    def on_key_press(self, event):
+        """Prevent editing before the prompt."""
+        # Allow special keys
+        if event.keysym in ("Up", "Down", "Left", "Right", "Home", "End", "BackSpace", "Delete"):
+            # Prevent backspace/delete before prompt
+            if event.keysym in ("BackSpace", "Delete"):
+                cursor_pos = self.terminal.index(tk.INSERT)
+                if self.terminal.compare(cursor_pos, "<=", self.prompt_position):
+                    return "break"
+            # Prevent left arrow/home before prompt
+            if event.keysym in ("Left", "BackSpace"):
+                cursor_pos = self.terminal.index(tk.INSERT)
+                if self.terminal.compare(cursor_pos, "<=", self.prompt_position):
+                    return "break"
+            return
+        
+        # Ensure typing happens after the prompt
+        cursor_pos = self.terminal.index(tk.INSERT)
+        if self.terminal.compare(cursor_pos, "<", self.prompt_position):
+            self.terminal.mark_set(tk.INSERT, tk.END)
+
+    def show_prompt(self):
+        """Display a new prompt."""
+        prompt = self.get_prompt()
+        self.terminal.insert(tk.END, prompt)
+        self.prompt_position = self.terminal.index(tk.INSERT)
+        self.terminal.see(tk.END)
 
     # File-like write for print redirection
     def write(self, message):
-        self.output.insert(tk.END, message)
-        self.output.see(tk.END)
+        self.terminal.insert(tk.END, message)
+        self.terminal.see(tk.END)
 
     def flush(self):
         pass
@@ -141,18 +170,20 @@ class ShellGUI(tk.Tk):
 
     # Handle command execution
     def execute_command(self, event=None):
-        command = self.input.get().strip()
+        # Get command from current line
+        command = self.terminal.get(self.prompt_position, tk.END).strip()
+        
         if not command:
-            return
-        self.input.delete(0, tk.END)
+            self.terminal.insert(tk.END, "\n")
+            self.show_prompt()
+            return "break"
 
-        # Display prompt + command
-        self.write(f"{self.get_prompt()}{command}\n")
+        self.terminal.insert(tk.END, "\n")
 
         # Exit commands
         if command in ("exit", "quit"):
             self.destroy()
-            return
+            return "break"
 
         # History rerun (!n)
         if command.startswith("!"):
@@ -163,37 +194,48 @@ class ShellGUI(tk.Tk):
                     self.write(f"Re-running command: {command}\n")
                 else:
                     self.write("Invalid history reference\n")
-                    return
+                    self.show_prompt()
+                    return "break"
             except ValueError:
                 self.write("Invalid history reference\n")
-                return
+                self.show_prompt()
+                return "break"
 
         append_history(command + "\n")
         output = run_command(command)
         if output:
             self.write(output)
+        
+        self.show_prompt()
+        return "break"
 
     # History navigation with arrows
     def navigate_history_up(self, event=None):
         if not history:
-            return
+            return "break"
         if self.history_index is None:
             self.history_index = len(history) - 1
         elif self.history_index > 0:
             self.history_index -= 1
-        self.input.delete(0, tk.END)
-        self.input.insert(0, history[self.history_index].strip())
+        
+        # Clear current input and replace with history
+        self.terminal.delete(self.prompt_position, tk.END)
+        self.terminal.insert(tk.END, history[self.history_index].strip())
+        return "break"
 
     def navigate_history_down(self, event=None):
         if not history or self.history_index is None:
-            return
-        elif self.history_index < len(history) - 1:
+            return "break"
+        
+        if self.history_index < len(history) - 1:
             self.history_index += 1
-            self.input.delete(0, tk.END)
-            self.input.insert(0, history[self.history_index].strip())
+            self.terminal.delete(self.prompt_position, tk.END)
+            self.terminal.insert(tk.END, history[self.history_index].strip())
         else:
             self.history_index = None
-            self.input.delete(0, tk.END)
+            self.terminal.delete(self.prompt_position, tk.END)
+        
+        return "break"
 
 #  Run GUI 
 if __name__ == "__main__":
