@@ -14,7 +14,8 @@ A lightweight **Python-based shell** inspired by Unix/Mac terminals, implemented
 - Cross-platform: Windows and POSIX compatible  
 - Two versions:
   - **CLI version:** classic command-line interface  
-  - **GUI version:** scrollable terminal with command input  
+  - **GUI version:** scrollable terminal with command input
+- type exit or quit to close the program
 
 
 ---
